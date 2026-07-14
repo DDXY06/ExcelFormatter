@@ -2,7 +2,9 @@ import os
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from readingFiles import read_excel, create_excel, write_excel
+from readingFiles import read_excel
+from creatingFile import create_excel
+from writingFiles import write_excel
 
 load_dotenv()
 
@@ -78,29 +80,16 @@ TOOLS = [
     ])
 ]
 
-client: genai.Client | None = None
 
-def init_client() -> genai.Client:
-    global client
+def get_client() -> genai.Client:
     key = os.environ.get('GEMINI_API_KEY')
     if not key:
         raise ValueError('Gemini API key required. Set GEMINI_API_KEY env var.')
-    client = genai.Client(api_key=key)
-    return client
+    return genai.Client(api_key=key)
 
-def get_client() -> genai.Client:
-    if client is None:
-        return init_client()
-    return client
-
-def generate(prompt: str, model: str = 'gemini-3.1-flash-lite') -> str:
-    c = get_client()
-    response = c.models.generate_content(model=model, contents=prompt)
-    return response.text
 
 def generate_with_tools(prompt: str, model: str = 'gemini-3.1-flash-lite', max_turns: int = 10) -> str:
     c = get_client()
-    # Use from_text to cleanly build the starting user block
     contents = [types.Content(role='user', parts=[types.Part.from_text(text=prompt)])]
 
     for turn in range(max_turns):
@@ -108,47 +97,34 @@ def generate_with_tools(prompt: str, model: str = 'gemini-3.1-flash-lite', max_t
         response = c.models.generate_content(
             model=model,
             contents=contents,
-            config=types.GenerateContentConfig(tools=TOOLS),
+            config=types.GenerateContentConfig(
+                tools=TOOLS,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
         )
 
         if not response.candidates or not response.candidates[0].content.parts:
-            raise RuntimeError("Received an empty response from the model.")
+            raise RuntimeError("Empty response from model.")
 
         parts = response.candidates[0].content.parts
-        
-        # Collect all function calls requested in this single turn
         function_calls = [p.function_call for p in parts if p.function_call]
 
         if function_calls:
-            # Step 1: Append the model's turn EXACTLY once to history
+            fn = function_calls[0]
             contents.append(response.candidates[0].content)
-            
-            tool_parts = []
-            # Step 2: Execute all requested tools (handles parallel calls safely)
-            for fn in function_calls:
-                print(f'Calling: {fn.name}({dict(fn.args.items())})')
 
-                func = FUNCTIONS.get(fn.name)
-                if func is None:
-                    raise ValueError(f'Unknown function: {fn.name}')
+            print(f'Calling: {fn.name}({dict(fn.args.items())})')
+            result = FUNCTIONS[fn.name](**{k: v for k, v in fn.args.items()})
+            print(f'Result: {result}')
 
-                args = {k: v for k, v in fn.args.items()}
-                result = func(**args)
-                print(f'Result: {result}')
-
-                # Queue up individual tool execution parts
-                tool_parts.append(
-                    types.Part.from_function_response(
-                        name=fn.name,
-                        response={'result': result},
-                    )
-                )
-            
-            # Step 3: Append all tool results together under a single 'tool' role block
-            contents.append(types.Content(role='tool', parts=tool_parts))
-            
+            contents.append(types.Content(
+                role='tool',
+                parts=[types.Part.from_function_response(
+                    name=fn.name,
+                    response={'result': result},
+                )]
+            ))
         else:
-            # If no tools were called, look for the final text response
             for part in parts:
                 if part.text:
                     print(part.text)

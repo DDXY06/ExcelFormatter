@@ -1,6 +1,6 @@
 import os
 import xlwt
-import datetime
+from datetime import datetime
 def create_excel(name: str, data: list[dict[str, str]]) -> str:
     """
     Create an .xls file with a timestamped filename and return the path.
