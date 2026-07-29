@@ -4,7 +4,7 @@ def _calculate_total(data: list[dict[str, str]]) -> float:
         try:
             precio = float(str(row.get('PRECIO', 0)).replace(',', '.'))
             cantidad = int(str(row.get('CANTIDAD', 0)).replace(',', '.'))
-            total += precio * cantidad
+            total += round(precio * cantidad, 2)
         except (ValueError, TypeError):
             pass
-    return total
+    return round(total, 2)

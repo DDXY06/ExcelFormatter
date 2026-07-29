@@ -3,14 +3,13 @@ import sys
 from pathlib import Path
 
 from prompt import MAIN_PROMPT
-import os
-from dotenv import load_dotenv
+
 from google.genai import types
 from google import genai
 from readingFiles import read_excel
 from _calculate_total import _calculate_total
 
-load_dotenv()
+
 FUNCTIONS = {
     'read_excel': read_excel,
     'calculate_total': _calculate_total,
@@ -55,74 +54,78 @@ TOOLS = [
 
 
 def debug_data(data: list[dict], label: str = "Data collected") -> None:
-    print(f"\n--- {label} ---")
+    print(f"\n--- {label} ---", file=sys.stderr)
     if not data:
-        print("(empty)")
+        print("(empty)", file=sys.stderr)
     else:
-        print(f"Rows: {len(data)}")
+        print(f"Rows: {len(data)}", file=sys.stderr)
         for i, row in enumerate(data):
-            print(f"  [{i}] {dict(row)}")
-    print("--------------------\n")
-
-def get_client() -> genai.Client:
-    key = os.environ.get('GEMINI_API_KEY')
-    if not key:
-        raise ValueError('Gemini API key required. Set GEMINI_API_KEY env var.')
-    return genai.Client(api_key=key)
+            print(f"  [{i}] {dict(row)}", file=sys.stderr)
+    print("--------------------\n", file=sys.stderr)
 
 
-def main(file_path: str) -> float:
-    client = get_client()
-    contents = [
-        types.Content(
-            role='user',
-            parts=[types.Part.from_text(text=MAIN_PROMPT + f"\n\nRead the Excel file or directory at: {file_path}")]
-        )
-    ]
+def get_client(api_key: str) -> genai.Client:
+    return genai.Client(api_key=api_key)
 
-    total = None
 
-    for turn in range(5):
-        response = client.models.generate_content(
-            model='gemini-3.1-flash-lite',
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=TOOLS,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            ),
-        )
+def main(file_path: str, api_key: str) -> float:
+    try:
+        if not Path(file_path).exists():
+            return -1.0
 
-        if not response.candidates:
-            break
+        client = get_client(api_key)
+        contents = [
+            types.Content(
+                role='user',
+                parts=[types.Part.from_text(text=MAIN_PROMPT + f"\n\nRead the Excel file or directory at: {file_path}")]
+            )
+        ]
 
-        parts = response.candidates[0].content.parts
-        function_calls = [p.function_call for p in parts if p.function_call]
+        total = None
 
-        if function_calls:
-            fn = function_calls[0]
-            contents.append(response.candidates[0].content)
-            result = FUNCTIONS[fn.name](**{k: v for k, v in fn.args.items()})
+        for turn in range(5):
+            response = client.models.generate_content(
+                model='gemini-3.1-flash-lite',
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    tools=TOOLS,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
 
-            if fn.name == 'read_excel':
-                debug_data(result, "Data collected by the model")
+            if not response.candidates:
+                break
 
-            if fn.name == 'calculate_total':
-                total = result
+            parts = response.candidates[0].content.parts
+            function_calls = [p.function_call for p in parts if p.function_call]
 
-            contents.append(types.Content(
-                role='tool',
-                parts=[types.Part.from_function_response(
-                    name=fn.name,
-                    response={'result': result},
-                )]
-            ))
-        else:
-            for part in parts:
-                if part.text:
-                    print(part.text)
-            break
+            if function_calls:
+                fn = function_calls[0]
+                contents.append(response.candidates[0].content)
+                result = FUNCTIONS[fn.name](**{k: v for k, v in fn.args.items()})
 
-    return total
+                if fn.name == 'read_excel':
+                    debug_data(result, "Data collected by the model")
+
+                if fn.name == 'calculate_total':
+                    total = result
+
+                contents.append(types.Content(
+                    role='tool',
+                    parts=[types.Part.from_function_response(
+                        name=fn.name,
+                        response={'result': result},
+                    )]
+                ))
+            else:
+                for part in parts:
+                    if part.text:
+                        print(part.text, file=sys.stderr)
+                break
+
+        return total if total is not None else -1.0
+    except Exception:
+        return -1.0
 
 
 if __name__ == '__main__':
@@ -130,15 +133,14 @@ if __name__ == '__main__':
         description='Calculate IVA total from an Excel file or directory.'
     )
     parser.add_argument(
+        '--api-key',
+        required=True,
+        help='Gemini API key'
+    )
+    parser.add_argument(
         'file_path',
         help='Path to the Excel file or directory'
     )
     args = parser.parse_args()
 
-    if not Path(args.file_path).exists():
-        print(f"Error: The path '{args.file_path}' does not exist.", file=sys.stderr)
-        sys.exit(1)
-
-    total = main(args.file_path)
-    if total is not None:
-        print(total)
+    print(main(args.file_path, args.api_key))
