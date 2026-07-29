@@ -18,7 +18,7 @@ TOOLS = [
     types.Tool(function_declarations=[
         types.FunctionDeclaration(
             name='read_excel',
-            description='Read raw binary of .xls/.xlsx files (single file or directory), detect the actual content type from binary signatures (xls, xlsx, html, csv, unknown), and return each base64-encoded with detected_type for conversion code generation.',
+            description='Read raw binary of .xls/.xlsx files (single file or directory), detect the actual content type from binary signatures, and return each base64-encoded with its extracted data as a list of dicts',
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
