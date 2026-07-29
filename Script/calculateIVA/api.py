@@ -1,14 +1,16 @@
+import argparse
 import sys
 from pathlib import Path
 
 from prompt import MAIN_PROMPT
-
+import os
+from dotenv import load_dotenv
 from google.genai import types
+from google import genai
 from readingFiles import read_excel
-from calculateIVA import _calculate_total
-from gemini_client import get_client
+from _calculate_total import _calculate_total
 
-
+load_dotenv()
 FUNCTIONS = {
     'read_excel': read_excel,
     'calculate_total': _calculate_total,
@@ -62,6 +64,12 @@ def debug_data(data: list[dict], label: str = "Data collected") -> None:
             print(f"  [{i}] {dict(row)}")
     print("--------------------\n")
 
+def get_client() -> genai.Client:
+    key = os.environ.get('GEMINI_API_KEY')
+    if not key:
+        raise ValueError('Gemini API key required. Set GEMINI_API_KEY env var.')
+    return genai.Client(api_key=key)
+
 
 def main(file_path: str) -> float:
     client = get_client()
@@ -114,13 +122,23 @@ def main(file_path: str) -> float:
                     print(part.text)
             break
 
-    print(f"Total: {total:.2f}" if total is not None else "Total: N/A")
     return total
 
 
 if __name__ == '__main__':
-    file_path: str = input('Enter the path to the Excel file or directory: ').strip()
-    if not Path(file_path).exists():
-        print(f"Error: The path '{file_path}' does not exist.")
+    parser = argparse.ArgumentParser(
+        description='Calculate IVA total from an Excel file or directory.'
+    )
+    parser.add_argument(
+        'file_path',
+        help='Path to the Excel file or directory'
+    )
+    args = parser.parse_args()
+
+    if not Path(args.file_path).exists():
+        print(f"Error: The path '{args.file_path}' does not exist.", file=sys.stderr)
         sys.exit(1)
-    main(file_path)
+
+    total = main(args.file_path)
+    if total is not None:
+        print(total)

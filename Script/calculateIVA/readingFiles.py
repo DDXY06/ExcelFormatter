@@ -1,5 +1,5 @@
 import os
-from traitlets import Any
+from typing import Any
 import pandas as pd
 
 def read_excel(file_path: str) -> list[dict[str, Any]]:
