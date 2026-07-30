@@ -2,6 +2,31 @@ use std::process::Command;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
+#[tauri::command]
+async fn calculate_iva(file_path: String, api_key: String) -> Result<f64, String> {
+    let exe_path = get_calculate_iva_exe()?;
+
+    let output = Command::new(&exe_path)
+        .arg("--api-key")
+        .arg(&api_key)
+        .arg(&file_path)
+        .output()
+        .map_err(|e| format!("Failed to run calculateIVA: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("calculateIVA error: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let total: f64 = stdout
+        .trim()
+        .parse()
+        .map_err(|e| format!("Failed to parse total: {} — raw: {}", e, stdout))?;
+
+    Ok(total)
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProcessResult {
     pub status: String,
@@ -63,6 +88,18 @@ async fn apply_iva_decision(temp_state: String, apply_iva: bool) -> Result<Proce
     Ok(result)
 }
 
+fn get_calculate_iva_exe() -> Result<PathBuf, String> {
+    let mut path = project_root();
+    path.push("Script");
+    path.push("calculateIVA");
+    path.push("dist");
+    path.push("calculateIVA.exe");
+    if !path.exists() {
+        return Err(format!("calculateIVA.exe not found at {:?}", path));
+    }
+    Ok(path)
+}
+
 fn project_root() -> PathBuf {
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     dir.pop();
@@ -84,7 +121,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![process_file, apply_iva_decision])
+        .invoke_handler(tauri::generate_handler![process_file, apply_iva_decision, calculate_iva])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
