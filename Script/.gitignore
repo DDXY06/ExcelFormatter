@@ -7,4 +7,7 @@
 /temp
 /*.md
 ././dist/*.exe
-./-/build/*
+././build/calculateIVA/*
+.env
+*.pkg
+./build/calculateIVA/*
